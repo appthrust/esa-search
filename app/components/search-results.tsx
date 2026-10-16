@@ -1,7 +1,13 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import type { SearchHit } from "@/lib/search-types";
+import {
+  PROVISIONAL_HEIGHT,
+  SnippetMarkdown,
+  termPattern,
+  useSnippetClamp,
+} from "./snippet-markdown";
 
 const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
   ["year", 365 * 24 * 60 * 60],
@@ -28,25 +34,6 @@ function formatRelative(iso: string, now: number): string | null {
     }
   }
   return "たった今";
-}
-
-/** Splits `text` so that every whitespace-separated query term is wrapped in <mark>. */
-function highlight(text: string, query: string): React.ReactNode {
-  const terms = query
-    .split(/\s+/)
-    .filter((term) => term.length > 0)
-    .map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  if (terms.length === 0) return text;
-  const pattern = new RegExp(`(${terms.join("|")})`, "gi");
-  return text.split(pattern).map((part, index) =>
-    index % 2 === 1 ? (
-      <mark key={index} className="rounded-sm bg-amber-100 px-0.5 text-inherit">
-        {part}
-      </mark>
-    ) : (
-      part
-    ),
-  );
 }
 
 export function HitList({
@@ -81,12 +68,16 @@ function HitCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const snippetId = useId();
+  const contentRef = useRef<HTMLDivElement>(null);
+  const clamp = useSnippetClamp(contentRef);
+  const pattern = useMemo(() => termPattern(query), [query]);
   const meta = hit.metadata;
   const category = meta?.category?.split("/").filter(Boolean) ?? [];
   const tags = meta?.tags?.filter(Boolean) ?? [];
   const updated = meta?.updatedAt ? formatRelative(meta.updatedAt, now) : null;
-  const collapsible =
-    hit.text.length > 160 || hit.text.split("\n").length > 3;
+  const collapsible = clamp.state === "clamped";
+  const collapsed = !expanded && clamp.state !== "fits";
+  const faded = collapsed && clamp.state === "clamped" && clamp.faded;
 
   return (
     <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-900/[0.02] transition-colors hover:border-slate-300 sm:p-5">
@@ -128,14 +119,30 @@ function HitCard({
         </a>
       </h3>
 
-      <p
+      <div
         id={snippetId}
-        className={`mt-2 text-sm leading-relaxed break-words whitespace-pre-line text-slate-700 ${
-          expanded ? "" : "line-clamp-3"
-        }`}
+        className={`mt-2 ${collapsed ? "overflow-hidden" : ""} ${faded ? "snippet-fade" : ""}`}
+        style={
+          collapsed
+            ? {
+                maxHeight:
+                  clamp.state === "clamped" ? clamp.height : PROVISIONAL_HEIGHT,
+              }
+            : undefined
+        }
+        onFocus={(event) => {
+          // Keyboard focus on a link hidden below the fold reveals the whole snippet.
+          if (!collapsed) return;
+          const box = event.currentTarget.getBoundingClientRect();
+          if (event.target.getBoundingClientRect().bottom > box.bottom) {
+            setExpanded(true);
+          }
+        }}
       >
-        {highlight(hit.text, query)}
-      </p>
+        <div ref={contentRef} className="snippet-md">
+          <SnippetMarkdown text={hit.text} pattern={pattern} idPrefix={snippetId} />
+        </div>
+      </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-slate-500">
         {collapsible ? (

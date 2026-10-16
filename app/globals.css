@@ -16,3 +16,102 @@
 body {
   @apply bg-slate-50 font-sans text-slate-900;
 }
+
+/*
+ * Knowledge hit snippets: esa Markdown rendered inside a result card.
+ * Headings stay subordinate to the card title; Preflight resets lists,
+ * headings and tables, so every block is styled explicitly here.
+ */
+@layer components {
+  .snippet-md {
+    @apply text-sm leading-relaxed break-words text-slate-700;
+  }
+  .snippet-md > * + * {
+    @apply mt-2;
+  }
+  .snippet-md :is(h4, h5, h6) {
+    @apply text-sm leading-snug font-semibold text-slate-800;
+  }
+  .snippet-md > :is(h4, h5, h6):not(:first-child) {
+    @apply mt-3;
+  }
+  .snippet-md :is(ul, ol) {
+    @apply pl-5;
+  }
+  .snippet-md ul {
+    @apply list-disc;
+  }
+  .snippet-md ol {
+    @apply list-decimal;
+  }
+  .snippet-md :is(ul, ol) ul {
+    list-style-type: circle;
+  }
+  .snippet-md li > :is(ul, ol),
+  .snippet-md li + li {
+    @apply mt-0.5;
+  }
+  .snippet-md li::marker {
+    @apply text-slate-400;
+  }
+  .snippet-md li > input[type="checkbox"] {
+    @apply mr-1 align-middle;
+  }
+  .snippet-md :is(ul, ol):has(> li > input[type="checkbox"]) {
+    @apply list-none pl-1;
+  }
+  .snippet-md strong {
+    @apply font-semibold text-slate-800;
+  }
+  .snippet-md a {
+    @apply rounded-sm text-teal-700 underline decoration-teal-700/30 underline-offset-2 hover:text-teal-900 hover:decoration-teal-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600;
+  }
+  .snippet-md a.snippet-image-link {
+    @apply rounded bg-slate-100 px-1.5 py-0.5 text-xs no-underline hover:bg-slate-200;
+  }
+  .snippet-md code {
+    @apply rounded bg-slate-100 px-1 py-0.5 font-mono text-[0.85em] text-slate-800;
+  }
+  .snippet-md pre {
+    @apply overflow-x-auto rounded-lg bg-slate-100 px-3 py-2 text-xs leading-normal;
+  }
+  .snippet-md pre code {
+    @apply bg-transparent p-0 text-[length:inherit];
+  }
+  .snippet-md blockquote {
+    @apply border-l-2 border-slate-200 pl-3 text-slate-600;
+  }
+  .snippet-md hr {
+    @apply border-slate-200;
+  }
+  .snippet-md .snippet-table {
+    @apply max-w-full overflow-x-auto rounded-lg border border-slate-200;
+  }
+  .snippet-md table {
+    @apply min-w-full border-collapse text-xs;
+  }
+  .snippet-md :is(th, td) {
+    @apply min-w-20 border-slate-200 px-2.5 py-1.5 text-left align-top;
+  }
+  .snippet-md tr + tr > *,
+  .snippet-md thead + tbody > tr > * {
+    @apply border-t;
+  }
+  .snippet-md :is(th, td) + :is(th, td) {
+    @apply border-l;
+  }
+  .snippet-md th {
+    @apply bg-slate-50 font-semibold text-slate-700;
+  }
+  .snippet-md mark {
+    @apply rounded-sm bg-amber-100 px-0.5 text-inherit;
+  }
+  .snippet-md section[data-footnotes] {
+    @apply border-t border-slate-100 pt-2 text-xs text-slate-500;
+  }
+
+  /* Collapsed snippet cut through flowing text: fade the last lines out. */
+  .snippet-fade {
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent);
+  }
+}
