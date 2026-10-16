@@ -3,6 +3,7 @@
 import type { Element, ElementContent, Root, RootContent, Text } from "hast";
 import { memo, useLayoutEffect, useState, type RefObject } from "react";
 import Markdown from "react-markdown";
+import remarkGemoji from "remark-gemoji";
 import remarkGfm from "remark-gfm";
 
 /** Builds a case-insensitive matcher for the whitespace-separated query terms. */
@@ -122,7 +123,9 @@ export const SnippetMarkdown = memo(function SnippetMarkdown({
 }) {
   return (
     <Markdown
-      remarkPlugins={[remarkGfm]}
+      // esa writes emoji as `:shortcode:`; gemoji covers the standard set and
+      // leaves team-custom codes (e.g. `:esa:`) as text.
+      remarkPlugins={[remarkGfm, remarkGemoji]}
       remarkRehypeOptions={{ clobberPrefix: `${idPrefix}-`, footnoteLabel: "脚注" }}
       rehypePlugins={[[rehypeSnippet, { pattern }]]}
     >
@@ -135,15 +138,21 @@ export const SnippetMarkdown = memo(function SnippetMarkdown({
 const COLLAPSED_HEIGHT = 168;
 /** Content up to this much taller than the collapsed height is shown in full. */
 const COLLAPSE_SLACK = 48;
-/** Blocks that are never cut through; the clamp ends above them instead. */
-const ATOMIC_BLOCKS: Record<string, true> = { PRE: true, TABLE: true, HR: true };
+/** Blocks that are never cut through, at any nesting depth (lists, quotes, footnotes). */
+const ATOMIC_SELECTOR = ".snippet-table, pre, hr";
+/** A cut above this offset leaves no readable text: the snippet opens with an atomic block. */
+const MIN_VISIBLE = 12;
 
 export type SnippetClamp =
   /** Before the first layout measurement: provisional cap, no affordance yet. */
   | { state: "measuring" }
   | { state: "fits" }
-  /** `faded` when the cut runs through flowing text and needs a fade-out. */
-  | { state: "clamped"; height: number; faded: boolean };
+  /**
+   * `faded` when the cut runs through flowing text. `hiddenLead` names the
+   * table/code block the snippet starts with when it is too tall to show
+   * whole; the collapsed view then shows nothing of the snippet but a hint.
+   */
+  | { state: "clamped"; height: number; faded: boolean; hiddenLead: "表" | "コード" | null };
 
 export const PROVISIONAL_HEIGHT = COLLAPSED_HEIGHT + COLLAPSE_SLACK;
 
@@ -151,30 +160,40 @@ function measureClamp(content: HTMLElement): SnippetClamp {
   const box = content.getBoundingClientRect();
   if (box.height <= PROVISIONAL_HEIGHT) return { state: "fits" };
 
-  let cut = 0;
-  for (const block of Array.from(content.children) as HTMLElement[]) {
-    const rect = block.getBoundingClientRect();
-    const bottom = rect.bottom - box.top;
-    if (bottom <= COLLAPSED_HEIGHT) {
-      cut = bottom;
-      continue;
+  const atomics = Array.from(content.querySelectorAll<HTMLElement>(ATOMIC_SELECTOR), (el) => {
+    const rect = el.getBoundingClientRect();
+    return {
+      top: rect.top - box.top,
+      bottom: rect.bottom - box.top,
+      kind: el.tagName === "PRE" ? ("コード" as const) : ("表" as const),
+    };
+  });
+
+  // Raise the cut above every table/code block it would run through. Moving
+  // up can land inside an enclosing block (code in a table), so repeat.
+  let cut = COLLAPSED_HEIGHT;
+  let lead: "表" | "コード" | null = null;
+  for (let moved = true; moved; ) {
+    moved = false;
+    for (const block of atomics) {
+      if (block.top < cut && block.bottom > cut) {
+        cut = block.top;
+        lead = block.kind;
+        moved = true;
+      }
     }
-    const atomic =
-      ATOMIC_BLOCKS[block.tagName] === true || block.classList.contains("snippet-table");
-    if (rect.top - box.top >= COLLAPSED_HEIGHT || (atomic && cut > 0)) {
-      return { state: "clamped", height: Math.ceil(cut), faded: false };
-    }
-    // Flowing text (or an oversized leading table/code block) is cut at the cap and faded out.
-    return { state: "clamped", height: COLLAPSED_HEIGHT, faded: true };
   }
-  return { state: "clamped", height: Math.ceil(cut), faded: false };
+
+  if (lead === null) return { state: "clamped", height: COLLAPSED_HEIGHT, faded: true, hiddenLead: null };
+  if (cut < MIN_VISIBLE) return { state: "clamped", height: 0, faded: false, hiddenLead: lead };
+  return { state: "clamped", height: Math.floor(cut), faded: false, hiddenLead: null };
 }
 
 /**
  * Measures the rendered snippet and decides where the collapsed view ends:
- * on a block boundary when the next block is a table/code block/rule (so a
- * collapsed card never shows part of one), otherwise at a fixed height with
- * a fade. Re-measures when the content reflows (viewport width changes).
+ * above any table/code block/rule the cap would run through (so a collapsed
+ * card never shows part of one), otherwise at a fixed height with a fade.
+ * Re-measures when the content reflows (viewport width changes).
  */
 export function useSnippetClamp(contentRef: RefObject<HTMLElement | null>): SnippetClamp {
   const [clamp, setClamp] = useState<SnippetClamp>({ state: "measuring" });
@@ -189,7 +208,8 @@ export function useSnippetClamp(contentRef: RefObject<HTMLElement | null>): Snip
         (prev.state !== "clamped" ||
           (next.state === "clamped" &&
             prev.height === next.height &&
-            prev.faded === next.faded))
+            prev.faded === next.faded &&
+            prev.hiddenLead === next.hiddenLead))
           ? prev
           : next,
       );

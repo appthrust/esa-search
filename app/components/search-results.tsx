@@ -78,6 +78,7 @@ function HitCard({
   const collapsible = clamp.state === "clamped";
   const collapsed = !expanded && clamp.state !== "fits";
   const faded = collapsed && clamp.state === "clamped" && clamp.faded;
+  const hiddenLead = collapsed && clamp.state === "clamped" ? clamp.hiddenLead : null;
 
   return (
     <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-900/[0.02] transition-colors hover:border-slate-300 sm:p-5">
@@ -119,9 +120,14 @@ function HitCard({
         </a>
       </h3>
 
+      {hiddenLead ? (
+        <p className="mt-2 text-sm text-slate-500">
+          本文は{hiddenLead}から始まります。「続きを表示」で表示します。
+        </p>
+      ) : null}
       <div
         id={snippetId}
-        className={`mt-2 ${collapsed ? "overflow-hidden" : ""} ${faded ? "snippet-fade" : ""}`}
+        className={`${hiddenLead ? "" : "mt-2"} ${collapsed ? "overflow-hidden" : ""} ${faded ? "snippet-fade" : ""}`}
         style={
           collapsed
             ? {
