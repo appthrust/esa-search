@@ -1,119 +1,53 @@
+import "server-only";
+
 import { Pool } from "pg";
+import type { StatusResponse } from "@/lib/search-types";
 
-export type DatabaseStatus =
-  | "ready"
-  | "missing-url"
-  | "migration-pending"
-  | "unavailable";
-
-export interface DemoMessage {
-  id: number;
-  body: string;
-  createdAt: string;
-}
-
-export interface DemoDatabaseState {
-  status: DatabaseStatus;
+export interface DatabaseState {
+  status: StatusResponse["database"];
   databaseUrlPresent: boolean;
   databaseName?: string;
   host?: string;
-  messages: DemoMessage[];
 }
 
 let pool: Pool | undefined;
 
-function databaseUrl() {
-  return process.env.DATABASE_URL?.trim() ?? "";
-}
-
-function getPool() {
-  const connectionString = databaseUrl();
+export function getPool(): Pool | null {
+  const connectionString = process.env.DATABASE_URL?.trim();
   if (!connectionString) {
     return null;
   }
 
-  pool ??= new Pool({
-    connectionString,
-    max: 4,
-    idleTimeoutMillis: 10_000,
-    connectionTimeoutMillis: 5_000,
-  });
+  if (!pool) {
+    pool = new Pool({
+      connectionString,
+      max: 4,
+      idleTimeoutMillis: 10_000,
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 5_000,
+      query_timeout: 5_000,
+    });
+    pool.on("error", () => {
+      console.warn("Database pool is unavailable.");
+    });
+  }
   return pool;
 }
 
-export async function loadDemoMessages(): Promise<DemoDatabaseState> {
-  const connectionString = databaseUrl();
+export async function databaseState(): Promise<DatabaseState> {
+  const connectionString = process.env.DATABASE_URL?.trim();
   if (!connectionString) {
-    return {
-      status: "missing-url",
-      databaseUrlPresent: false,
-      messages: [],
-    };
+    return { status: "missing-url", databaseUrlPresent: false };
   }
 
-  const parsed = safeDatabaseUrl(connectionString);
-  const client = getPool();
-  if (!client) {
-    return {
-      status: "missing-url",
-      databaseUrlPresent: false,
-      messages: [],
-    };
-  }
-
+  const details = safeDatabaseUrl(connectionString);
   try {
-    const result = await client.query<{
-      id: number;
-      body: string;
-      created_at: string;
-    }>(`
-      SELECT id, body, created_at::text
-      FROM appthrust_demo_messages
-      ORDER BY id DESC
-      LIMIT 8
-    `);
-
-    return {
-      status: "ready",
-      databaseUrlPresent: true,
-      databaseName: parsed.databaseName,
-      host: parsed.host,
-      messages: result.rows.map((row) => ({
-        id: row.id,
-        body: row.body,
-        createdAt: row.created_at,
-      })),
-    };
-  } catch (error) {
-    return {
-      status: databaseTableMissing(error) ? "migration-pending" : "unavailable",
-      databaseUrlPresent: true,
-      databaseName: parsed.databaseName,
-      host: parsed.host,
-      messages: [],
-    };
+    await getPool()!.query("SELECT 1");
+    return { status: "ready", databaseUrlPresent: true, ...details };
+  } catch {
+    console.warn("Database status check failed.");
+    return { status: "unavailable", databaseUrlPresent: true, ...details };
   }
-}
-
-export async function insertDemoMessage(body: string) {
-  const client = getPool();
-  if (!client) {
-    return;
-  }
-
-  await client.query(
-    "INSERT INTO appthrust_demo_messages (body) VALUES ($1)",
-    [body],
-  );
-}
-
-function databaseTableMissing(error: unknown) {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "42P01"
-  );
 }
 
 function safeDatabaseUrl(connectionString: string) {
